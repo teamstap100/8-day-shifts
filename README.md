@@ -9,3 +9,18 @@
 	* clientId: Application client id
 	* secret: Application client secret
 	* x5cstrings: Dictionary where each x5c string is the key and the corresponding x5t string is the value. (See (this link)[https://stevelathrop.net/securing-a-node-js-rest-api-with-azure-ad-jwt-bearer-tokens/])
+* And these are necessary to define in .env (or the Azure webapp application settings):
+	* OAUTH_APP_ID={clientId}
+	* OAUTH_APP_PASSWORD={clientSecret}
+	* OAUTH_REDIRECT_URI={your URL + "/auth/callback"
+	* OAUTH_SCOPES='profile offline_access user.read.all group.readwrite.all'
+	* OAUTH_AUTHORITY=https://login.microsoftonline.com/common
+	* OAUTH_ID_METADATA=/v2.0/.well-known/openid-configuration
+	* OAUTH_AUTHORIZE_ENDPOINT=/oauth2/v2.0/authorize
+	* OAUTH_TOKEN_ENDPOINT=/oauth2/v2.0/token
+
+## Running the app locally
+* Register a new app in the Azure Portal, and note the client ID and client secret.
+* Fill in the configuration variables listed above.
+* npm install
+* node server.js

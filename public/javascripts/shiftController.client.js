@@ -18,7 +18,7 @@
         $('#teamId').text(groupId);
     });
 
-    const clientId = "40115a45-92b0-4c69-85e3-b61d266e7439"; // Client Id of the registered application
+    const clientId = "YOUR_CLIENT_ID"; // Client Id of the registered application
 
     // Parse query parameters
     let queryParams = getQueryParameters();
