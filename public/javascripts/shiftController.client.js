@@ -1,24 +1,29 @@
 'use strict';
 
 (function () {
-    var spinner = '<i class="fa fa-spinner fa-spin"></i>  ';
+    const clientId = "40115a45-92b0-4c69-85e3-b61d266e7439"; // Client Id of the registered application
+    var storage = window.localStorage;
 
     microsoftTeams.initialize();
 
-    $('#btnLogin').click(login);
-    $('#btnLogout').click(logout);
+    $(function () {
+        $('#btnLogin').click(login);
+        $('#btnLogout').click(logout);
+
+        //storage.clear();
+    });
+
+    var spinner = '<i class="fa fa-spinner fa-spin"></i>  ';
 
     var userId;
     var groupId;
     var accessToken;
-    var userTeamRole;
+
     microsoftTeams.getContext(function (context) {
         groupId = context["groupId"].split("@")[0];
         userId = context["userObjectId"];
         $('#teamId').text(groupId);
     });
-
-    const clientId = "YOUR_CLIENT_ID"; // Client Id of the registered application
 
     // Parse query parameters
     let queryParams = getQueryParameters();
@@ -167,40 +172,146 @@
     }
 
     function createScheduleIfNotExist(accessToken) {
-        var scheduleUrl = "https://graph.microsoft.com/beta/teams/" + groupId + "/schedule";
-        $('#instructions').html(spinner + "Checking schedule...");
+        if (storage.getItem("Schedule")) {
+            createSchedulingGroups(accessToken);
+        } else {
+            var scheduleUrl = "https://graph.microsoft.com/beta/teams/" + groupId + "/schedule";
+            $('#instructions').html(spinner + "Checking schedule...");
+            $.ajax({
+                type: "GET",
+                url: scheduleUrl,
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+                },
+            }).then(function (data) {
+                if (!data.enabled) {
+                    $('#instructions').html(spinner + "No schedule exists yet for this team. Creating a new blank schedule...");
+                    var newSchedule = {
+                        enabled: true,
+                        timeZone: "America/New_York"
+                    }
+
+                    $.ajax({
+                        type: "PUT",
+                        url: scheduleUrl,
+                        contentType: 'application/json',
+                        beforeSend: function (xhr) {
+                            xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+                        },
+                        data: JSON.stringify(newSchedule)
+                    }).then(function (newSchedule) {
+                        storage.setItem("Schedule", "true");
+                        checkSchedulingGroups(accessToken);
+
+                    });
+                } else {
+                    storage.setItem("Schedule", "true");
+                    checkSchedulingGroups(accessToken);
+                }
+            });
+        }
+    }
+
+    // Create 4 scheduling groups in a specified order
+    function createSchedulingGroup(accessToken, remaining) {
+        if (remaining.length == 0) {
+            getTeamUsers(accessToken);
+            return;
+        }
+
+        var group = remaining.shift();
+
+
+        if (storage.getItem(group)) {
+            console.log("This already exists and is in storage");
+            createSchedulingGroup(accessToken, remaining);
+        }
+
+        console.log("Creating a new group");
+        console.log("Remaining: " + remaining);
+        var newGroup = {
+            displayName: group,
+            isEnabled: true,
+        }
+
+        console.log(newGroup);
+        var schedulingGroupsUrl = "https://graph.microsoft.com/beta/teams/" + groupId + "/schedule/schedulingGroups";
         $.ajax({
-            type: "GET",
-            url: scheduleUrl,
+            type: "POST",
+            url: schedulingGroupsUrl,
+            contentType: 'application/json',
             beforeSend: function (xhr) {
                 xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
             },
-        }).then(function (data) {
-            if (!data.enabled) {
-                $('#instructions').html(spinner + "No schedule exists yet for this team. Creating a new blank schedule...");
-                var newSchedule = {
-                    enabled: true,
-                    timeZone: "America/New_York"
-                }
-
-                console.log(newSchedule);
-                $.ajax({
-                    type: "PUT",
-                    url: scheduleUrl,
-                    contentType: 'application/json',
-                    beforeSend: function (xhr) {
-                        xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
-                    },
-                    data: JSON.stringify(newSchedule)
-                }).then(function (newSchedule) {
-                    console.log(newSchedule);
-                    getTeamUsers(accessToken);
-
-                });
-            } else {
-                getTeamUsers(accessToken);
-            }
+            data: JSON.stringify(newGroup)
+        }).then(function (newGroup) {
+            // TODO: Handle "conflict" exception
+            storage.setItem(group, newGroup.id);
+            storage.setItem(group.replace(" ", "") + "_Users", "");
+            createSchedulingGroup(accessToken, remaining);
         });
+    }
+
+    function checkSchedulingGroups(accessToken) {
+        if ((storage.getItem("A Day")) && (storage.getItem("A Night")) && (storage.getItem("B Day")) && (storage.getItem("B Night"))) {
+            console.log("Already have scheduling groups. A Day is: " + storage.getItem("A Day"));
+            getTeamUsers(accessToken);
+        } else {
+            var schedulingGroupsUrl = "https://graph.microsoft.com/beta/teams/" + groupId + "/schedule/schedulingGroups";
+            $('#instructions').html(spinner + "Checking scheduling groups...");
+            $.ajax({
+                type: "GET",
+                url: schedulingGroupsUrl,
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
+                },
+            }).then(function (data) {
+                var sGroups = data.value;
+                sGroups.forEach(function (sGroup) {
+                    console.log(sGroup.displayName, sGroup.id);
+                    switch (sGroup.displayName) {
+                        case "A Day":
+                            storage.setItem("A Day", sGroup.id);
+                            storage.setItem("ADay_Users", "");
+                            break;
+                        case "A Night":
+                            storage.setItem("A Night", sGroup.id);
+                            storage.setItem("ANight_Users", "");
+
+                            break;
+                        case "B Day":
+                            storage.setItem("B Day", sGroup.id);
+                            storage.setItem("BDay_Users", "");
+
+                            break;
+                        case "B Night":
+                            storage.setItem("B Night", sGroup.id);
+                            storage.setItem("BNight_Users", "");
+                            break;
+                        default:
+                            console.log("Some other group");
+                    }
+                });
+
+                if (!(storage.getItem("B Night"))) {
+                    console.log("Need to create scheduling groups");
+                    $('#instructions').html(spinner + "Creating scheduling groups...");
+
+                    var doneCounter = 0;
+
+                    function checkIfDone() {
+                        if (doneCounter == groupNames.length) {
+                            getTeamUsers(accessToken);
+                        }
+                    }
+
+                    var groupNames = ["A Day", "A Night", "B Day", "B Night"];
+                    createSchedulingGroup(accessToken, groupNames, createSchedulingGroup);
+                } else {
+                    getTeamUsers(accessToken);
+                }
+            });
+        }
     }
 
     function getTeamUsers(accessToken) {
@@ -219,16 +330,33 @@
         var users = result.value.sort((a, b) => (a.surname > b.surname) ? 1 : -1);
 
         users.forEach(function (user) {
+            console.log("ADay: " + storage.getItem("ADay_Users"));
+            console.log("ANight: " + storage.getItem("ANight_Users"));
+            console.log("BDay: " + storage.getItem("BDay_Users"));
+            console.log("BNight: " + storage.getItem("BNight_Users"));
+
+
+
             var newRow = table.insertRow(-1);
             newRow.innerHTML = "<td class='name'>{name}</td><td class='email'>{email}</td><td class='radios'>{radios}</td><td style='display: none' class='userId'>{userId}</td>";
             newRow.innerHTML = newRow.innerHTML.replace("{name}", user.displayName);
             
             newRow.innerHTML = newRow.innerHTML.replace("{email}", user.userPrincipalName.split("@")[0]);
 
-            var radios = '<div class="btn-group btn-group-toggle" data-toggle="buttons"><label class="btn btn-danger"><input type="radio" name="options" id="createShift-ADay-{userId}"> A Day</label><label class="btn btn-danger"><input type="radio" name="options" id="createShift-ANight-{userId}" autocomplete="off"> A Night</label><label class="btn btn-primary"><input type="radio" name="options" id="createShift-BDay-{userId}" autocomplete="off"> B Day</label><label class="btn btn-primary"><input type="radio" name="options" id="createShift-BNight-{userId}" autocomplete="off"> B Night</label><label class="btn btn-outline-dark" style="float: right"><input type="radio" name="options" id="none-none-{userId}"> None</label></div>';
+            var radios = '<div class="btn-group btn-group-toggle" data-toggle="buttons"><label class="btn btn-danger ADay"><input type="radio" name="options" id="createShift-ADay-{userId}"> A Day</label><label class="btn btn-danger ANight"><input type="radio" name="options" id="createShift-ANight-{userId}" autocomplete="off"> A Night</label><label class="btn btn-primary BDay"><input type="radio" name="options" id="createShift-BDay-{userId}" autocomplete="off"> B Day</label><label class="btn btn-primary BNight"><input type="radio" name="options" id="createShift-BNight-{userId}" autocomplete="off"> B Night</label><label class="btn btn-outline-dark" style="float: right"><input type="radio" name="options" id="none-none-{userId}"> None</label></div>';
 
             newRow.innerHTML = newRow.innerHTML.replace("{radios}", radios);
             newRow.innerHTML = newRow.innerHTML.replace(/{userId}/g, user.id);
+
+            if (storage.getItem("ADay_Users").includes(user.id)) {
+                newRow.innerHTML = newRow.innerHTML.replace('<label class="btn btn-danger ADay">', '<label class="btn btn-danger ADay active">')
+            } else if (storage.getItem("ANight_Users").includes(user.id)) {
+                newRow.innerHTML = newRow.innerHTML.replace('<label class="btn btn-danger ANight">', '<label class="btn btn-danger ANight active">')
+            } else if (storage.getItem("BDay_Users").includes(user.id)) {
+                newRow.innerHTML = newRow.innerHTML.replace('<label class="btn btn-primary BDay">', '<label class="btn btn-primary BDay active">')
+            } else if (storage.getItem("BNight_Users").includes(user.id)) {
+                newRow.innerHTML = newRow.innerHTML.replace('<label class="btn btn-primary BNight">', '<label class="btn btn-primary BNight active">')
+            }
 
             newRow.classList.add("userRow");
 
@@ -283,12 +411,32 @@
                 var buttonType = selectedRadio.split("-")[0];
                 if (buttonType == 'createShift') {
                     var team = selectedRadio.split('-')[1];
+
+                    var schedulingGroupId;
+                    switch (team) {
+                        case "ADay":
+                            schedulingGroupId = storage.getItem("A Day");
+                            break;
+                        case "ANight":
+                            schedulingGroupId = storage.getItem("A Night");
+                            break;
+                        case "BDay":
+                            schedulingGroupId = storage.getItem("B Day");
+                            break;
+                        case "BNight":
+                            schedulingGroupId = storage.getItem("B Night");
+                            break;
+                        default:
+                            schedulingGroupId = "";
+                    }
+
                     var obj = {
                         userId: userId,
                         team: team,
                         groupId: groupId,
                         accessToken: accessToken,
                         days: days,
+                        schedulingGroupId: schedulingGroupId,
                     };
                     inputs.push(obj);
                 }
@@ -304,7 +452,6 @@
 
     async function addShifts(requests) {
         $('#submit').prop('disabled', true);
-        console.log("Got to addShifts");
         var counter = 0;
 
         // Deal with the zero case
@@ -317,7 +464,26 @@
 
         requests.forEach(function (request) {
             console.log(request);
-            addShift(request, function () {
+            addShift(request, function (data) {
+                data = JSON.parse(data);
+
+                console.log(data);
+
+                var userId = data.userId;
+                var shift = data.shift;
+
+                // Remove the user from any shift list they're already in
+                var shiftKeys = ["ADay_Users", "ANight_Users", "BDay_Users", "BNight_Users"];
+                shiftKeys.forEach(function (key) {
+                    if (storage.getItem(key).includes(userId + ";")) {
+                        storage.setItem(key, storage.getItem(key).replace(userId + ";", ""));
+                    }
+                })
+
+                // Place this user into this shift's list
+                var shiftKey = shift.replace(" ", "") + "_Users";
+                storage.setItem(shiftKey, storage.getItem(shiftKey) + userId + ";");
+
                 counter++;
                 var progressPercentage = (counter / requests.length) * 100;
                 $('#progressValue').css('width', progressPercentage + "%");
@@ -327,7 +493,6 @@
                     $('#progress').css('display', 'none');
                     $('#submit').prop('disabled', false);
                     $('#success').css('display', '');
-                    $('label.active').removeClass('active');
                     console.log("It's done");
                 }
             });
@@ -337,8 +502,8 @@
     async function addShift(shift, callback) {
         var createShiftApi = "/api/shifts";
 
-        ajaxRequest('POST', createShiftApi, shift, function () {
-            callback();
+        ajaxRequest('POST', createShiftApi, shift, function (data) {
+            callback(data);
             return true;
         });
     }
@@ -347,7 +512,6 @@
         var xmlhttp = new XMLHttpRequest();
 
         xmlhttp.onreadystatechange = function () {
-            console.log(xmlhttp.status);
             if (xmlhttp.readyState === 4 && xmlhttp.status === 200) {
                 callback(xmlhttp.response);
             }

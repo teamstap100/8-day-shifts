@@ -41,6 +41,6 @@ router.get('/config/', function (req, res, next) {
 
 // Shift creation API
 router.post('/api/shifts',
-    shiftHandler.createShift);
+    shiftHandler.assignShifts);
 
 module.exports = router;

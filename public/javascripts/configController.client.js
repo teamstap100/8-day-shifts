@@ -4,11 +4,9 @@
 
     var contentUrl;
     // TESTING
-    //contentUrl = "https://1db7be47.ngrok.io";
+    contentUrl = "https://1db7be47.ngrok.io";
     // PRODUCTION
-    contentUrl = "https://8-day-shifts.azurewebsites.net/";
-
-    console.log(contentUrl);
+    //contentUrl = "https://8-day-shifts.azurewebsites.net/";
 
     function setValid() {
         console.log("onClick called");
